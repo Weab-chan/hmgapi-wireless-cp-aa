@@ -19,6 +19,7 @@ R=$T/root
 d=$(HMGAPI_NEMESIS_CONFLICTS=/dev/null python3 "$HMGAPI_SDK/bin/nemesis-meta.py" depends hmgapi.wireless-carplay-aa 'hmgapi@>=1.0' --mod "$M/mod.json")
 if [ "$d" = "hmgapi@>=1.0,!wireless.projection,!projection.tbt" ]; then echo "ok    NEMESIS package refuses wireless.projection and projection.tbt"
 else echo "FAIL  NEMESIS package depends: [$d]"; exit 1; fi
+python3 "$M/tools/ioniq6/integration.py"
 [ -d "$S/app" ] || { echo "no stock tree at $S (skipped)"; exit 0; }
 
 mkdir -p $R/system/app $R/system/lib $R/system/etc/permissions $R/system/onebin/$ONEBIN $R/sys/bus/sdio/devices/mmc1:0001:1 $R/data/hmgapi/mods $R/data/hmgapi/settings

@@ -34,6 +34,23 @@ import hmgapi.hook.Points;
  * start as before (hook point framework.context_impl.start_service).
  */
 public final class Wireless extends ModEntry {
+    private final java.io.File aaLibrary;
+    private Boolean aaTbtSupported;
+
+    public Wireless() {
+        this(new java.io.File("/system/lib/libautoreceiver_infobank.so"));
+    }
+
+    /** Allows off-car tests to exercise the same capability check with private stock or fixtures. */
+    Wireless(java.io.File aaLibrary) {
+        this.aaLibrary = aaLibrary;
+    }
+
+    private boolean aaTbtSupported() {
+        if (aaTbtSupported == null) aaTbtSupported = AaTbtSupport.supports(aaLibrary);
+        return aaTbtSupported;
+    }
+
     static final String BTSETTINGS = "com.android.btsettings";
     static final String GPM = "com.google.android.projection.sink";
     static final String GAL_SERVICE = "com.google.android.projection.service.GalReceiverService";
@@ -88,14 +105,18 @@ public final class Wireless extends ModEntry {
      */
     private void navigation(final ModContext mod, final LoadedApp app) {
         if (!mod.settingBoolean("tbt", true)) return;
+        // Keep stock navigation available when this mod cannot supply AA turns. CarPlay
+        // and cars with GPM's own turn-by-turn retain their existing arbitration.
+        final boolean aaGuidance = Car.stepOfSpec() >= 999 || aaTbtSupported();
         MethodHook skip = new MethodHook() {
             @Override
             protected void beforeHookedMethod(Param p) {
-                if (Car.phoneGuiding(app.context)) p.setResult(null);
+                if (Car.carPlayGuiding(app.context) || (aaGuidance && Car.androidAutoGuiding(app.context))) p.setResult(null);
             }
         };
         for (String m : NAVI_TBT) mod.hook(null, "framework.navigation_cluster." + m, skip);
-        mod.log("navigation: turn-by-turn yields to the phone in " + app.processName);
+        mod.log("navigation: turn-by-turn yields to " + (aaGuidance ? "Android Auto and CarPlay" : "CarPlay")
+                + " in " + app.processName);
     }
 
     /**
@@ -197,6 +218,13 @@ public final class Wireless extends ModEntry {
             mod.log("Android Auto: stepofspec is 999 or more, GPM's own turn-by-turn runs (HMG-API's stays off)");
             return;
         }
+        // nativePatch is asynchronous and returns no success result. Do not install
+        // its dependent Java hooks on an unknown library,
+        // even if an owner saved tbt=true. CarPlay and the USB-drive hook are separate.
+        if (!aaTbtSupported()) {
+            mod.log("Android Auto: cluster/HUD turn-by-turn off; stock library has no verified recipe or could not be read");
+            return;
+        }
         // the AA library: protocol 1.6 and the turn-by-turn extras packed into its callbacks, in memory (file stays stock)
         mod.nativePatch(app, "libautoreceiver_infobank.so");
         mod.hook(cl, "gpm.navigation_status.init", new MethodHook() {
@@ -226,7 +254,7 @@ public final class Wireless extends ModEntry {
                                     if (c == null) return;
                                     turns.put(receiver, t = new AaTurns(app.context, c, handler));
                                     t.standardTurns = mod.settingBoolean("tbt_standard", false);
-                                    mod.log("Android Auto: turn-by-turn to the cluster for this connection"
+                                    mod.log("Android Auto: navigation callback received; cluster bridge created"
                                             + (t.standardTurns ? " (standard turns)" : ""));
                                 }
                             }
